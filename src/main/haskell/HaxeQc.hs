@@ -49,7 +49,7 @@ backendJs =
         "haxe -js " <> (_BUILD_JS </> modul <> ".js") <>
         " -cp " <> _SRC_HAXE <>
         " -cp " <> cp <>
-        " -cp /usr/lib/haxe/lib/nodejs/2,2,5" <>
+        " -lib nodejs" <>
         " -main " <> modul
     , runShell = \modul ->
         "node " <> (_BUILD_JS </> modul <> ".js")
@@ -194,7 +194,7 @@ main = do
     etalon = backendJs
     backends = [backendJava]
   createDirs
-  forM_ (reverse testCases) $ \testCase -> do
+  forM_ testCases $ \testCase -> do
     -- compile
     compileTestCase (etalon : backends) testCase
     -- test
