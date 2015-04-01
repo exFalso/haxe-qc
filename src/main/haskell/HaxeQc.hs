@@ -1,16 +1,17 @@
 {-# LANGUAGE RecordWildCards, ScopedTypeVariables #-}
 
-import Control.Exception
+import Control.Applicative
 import Control.Concurrent
+import Control.Exception
 import Control.Monad
 import Data.Monoid
 import System.Directory
+import System.Exit
 import System.FilePath
+import System.IO
 import System.Process
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
-import System.IO
-import System.Exit
 
 _BUILD :: FilePath
 _BUILD = "./build"
@@ -82,13 +83,34 @@ readParse input = case reads input of
 testCases :: [TestCase]
 testCases =
   [ TestCase
-    { testCaseName = "ParseFloat"
+    { testCaseName = "StdParseInt"
+    , generateInput =
+        oneof
+          [ do
+               double <- arbitrary :: Gen Integer
+               return $ show double
+          , arbitrary
+          , do
+               double <- arbitrary :: Gen Integer
+               str <- arbitrary
+               return $ show double <> str
+          , ("0x" <>) <$> arbitrary
+          ]
+    , haxeExpression = "function(s){return (\"\" + Std.parseInt(s));}"
+    , comparator = \astr bstr -> (readParse astr :: Maybe Integer) == readParse bstr
+    }
+  , TestCase
+    { testCaseName = "StdParseFloat"
     , generateInput =
         oneof
           [ do
                double <- arbitrary :: Gen Double
                return $ show double
           , arbitrary
+          , do
+               double <- arbitrary :: Gen Double
+               str <- arbitrary
+               return $ show double <> str
           ]
     , haxeExpression = "function(s){return (\"\" + Std.parseFloat(s));}"
     , comparator =
@@ -100,7 +122,17 @@ testCases =
             (Just a, Just b) -> doubleCmp a b
             (a, b) -> a == b
     }
+  , TestCase
+    { testCaseName = "StdInt"
+    , generateInput = do
+        double <- arbitrary :: Gen Double
+        return $ show double
+    , haxeExpression = "function(s){return (\"\" + Std.int(Std.parseFloat(s)));}"
+    , comparator = \astr bstr -> (readParse astr :: Maybe Integer) == readParse bstr
+    }
   ]
+
+
 
 makeMain :: String -> String -> String
 makeMain = \name fun -> "import InOut;\nclass " <> name <> "{ public static function main() { InOut.run(" <> fun <> ");} }"
@@ -140,15 +172,21 @@ qcTestCase etalon backends testCase@TestCase{..} = property $ do
       unless (etalonOutput `comparator` backendOutput) . run $ do
         putStrLn $ "Difference between " <> backendName etalon <> " and " <> backendName backend <> " when checking " <> testCaseName
         putStrLn "input:"
-        putStrLn input
+        print input
         putStrLn $ backendName etalon <> ":"
-        putStrLn etalonOutput
+        print etalonOutput
         putStrLn $ backendName backend <> ":"
-        putStrLn backendOutput
+        print backendOutput
         fail ""
 
 createDirs :: IO ()
 createDirs = forM_ [ _BUILD_HAXE, _BUILD_JS, _BUILD_JAVA ] $ createDirectoryIfMissing True
+
+forkWait :: IO () -> IO (IO ())
+forkWait action = do
+  v <- newEmptyMVar
+  _ <- forkIO $ action >> putMVar v ()
+  return (readMVar v)
 
 main :: IO ()
 main = do
@@ -156,8 +194,11 @@ main = do
     etalon = backendJs
     backends = [backendJava]
   createDirs
-  forM_ testCases $ \testCase -> do
+  forM_ (reverse testCases) $ \testCase -> do
     -- compile
     compileTestCase (etalon : backends) testCase
     -- test
-    quickCheck $ qcTestCase etalon backends testCase
+    waits <- replicateM 5 . forkWait $
+      quickCheckWith stdArgs { maxSuccess = 10000, chatty = False } $
+        qcTestCase etalon backends testCase
+    sequence_ waits

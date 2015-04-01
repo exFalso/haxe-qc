@@ -1,0 +1,13 @@
+Std.parseFloat:
+"+7"
+"6e"
+"6E"
+" 4"
+"0x0"
+
+Std.parseInt:
+"0x	C"
+"0:"
+"0x+A"
+
+Std.int
