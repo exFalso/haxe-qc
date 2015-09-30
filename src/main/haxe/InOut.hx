@@ -31,14 +31,13 @@ class InOut
 	public static function writeStdout(str:String)
 	{
 #if js
-		untyped __js__("js.Node.process.stdout.setEncoding(\"utf8\")");
 		Node.process.stdout.write(str);
 #end
 #if java
 		Sys.stdout().writeString(str);
 		Sys.stdout().flush();
 #end
-		
+
 	}
 
 	public static function run(fun:String->String)
