@@ -10,6 +10,7 @@ import           Control.Monad
 import           Data.Char
 import           Data.Monoid
 import           System.Directory
+import           System.Environment
 import           System.Exit
 import           System.FilePath
 import           System.IO
@@ -64,30 +65,28 @@ backendJs =
     , runShell = \modul ->
         "node " <> (_BUILD_JS </> modul <> ".js")
     }
-backendJava :: Backend
-backendJava =
+backendJava :: Bool -> Backend
+backendJava override =
   Backend
     { backendName = "java"
     , compileShell = \cp modul ->
-        "zsh -c '" <>
             "haxe -java " <> (_BUILD_JAVA </> modul <> ".java") <>
             " -cp " <> _SRC_HAXE <>
             " -cp " <> cp <>
-            " -cp " <> _SRC_HAXE_JAVA <>
+            (if override then " -cp " <> _SRC_HAXE_JAVA else "") <>
             " -java-lib " <> _BUILD_JAVA_COMMON <>
             " -main " <> modul <>
             " -D no-compilation" <>
           " && " <>
-            "mkdir " <> (_BUILD_JAVA </> modul <> ".java" </> "obj") <>
+            "mkdir -p " <> (_BUILD_JAVA </> modul <> ".java" </> "obj") <>
           " && " <>
             "javac -d " <> (_BUILD_JAVA </> modul <> ".java" </> "obj") <>
-            " " <> (_BUILD_JAVA </> modul <> ".java" </> "src" </> "**" </> "*.java") <>
-            " " <> _SRC_JAVA </> "**" </> "*.java" <>
+            " $(find " <> (_BUILD_JAVA </> modul <> ".java" </> "src") <> " -name \"*.java\")" <>
+            " $(find " <> _SRC_JAVA <> " -name \"*.java\")" <>
           " && " <>
             "jar -cfe " <> (_BUILD_JAVA </> modul <> ".java" </> modul <> ".jar") <>
             " haxe.root." <> modul <>
-            " -C build/java/" <> modul <> ".java/obj ." <>
-        "'"
+            " -C build/java/" <> modul <> ".java/obj ."
     , runShell = \modul ->
         "java -jar " <> (_BUILD_JAVA </> modul <> ".java" </> modul <> ".jar") <>
         " -cp " <> _BUILD_JAVA_COMMON
@@ -150,9 +149,13 @@ forkWait action = do
 
 main :: IO ()
 main = do
+  args <- getArgs
   let
+    overrideJava = case args of
+      ["--use-override"] -> True
+      _ -> False
     etalon = backendJs
-    backends = [backendJava]
+    backends = [backendJava overrideJava]
   createDirs
   results <- forM testCases $ \testCase -> do
     -- compile
