@@ -1,17 +1,21 @@
-{-# LANGUAGE RecordWildCards, ScopedTypeVariables #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
-import Control.Applicative
-import Control.Concurrent
-import Control.Exception
-import Control.Monad
-import Data.Monoid
-import System.Directory
-import System.Exit
-import System.FilePath
-import System.IO
-import System.Process
-import Test.QuickCheck
-import Test.QuickCheck.Monadic
+import           TestCases
+
+import           Control.Applicative
+import           Control.Concurrent
+import           Control.Exception
+import           Control.Monad
+import           Data.Char
+import           Data.Monoid
+import           System.Directory
+import           System.Exit
+import           System.FilePath
+import           System.IO
+import           System.Process
+import           Test.QuickCheck
+import           Test.QuickCheck.Monadic
 
 _BUILD :: FilePath
 _BUILD = "./build"
@@ -25,20 +29,26 @@ _BUILD_JS = _BUILD </> "js"
 _BUILD_JAVA :: FilePath
 _BUILD_JAVA = _BUILD </> "java"
 
+_BUILD_JAVA_COMMON :: FilePath
+_BUILD_JAVA_COMMON = _BUILD_JAVA </> "common"
+
 _SRC :: FilePath
 _SRC = "./src"
 
 _SRC_HAXE :: FilePath
 _SRC_HAXE = _SRC </> "main" </> "haxe"
 
+_SRC_JAVA :: FilePath
+_SRC_JAVA = _SRC </> "main" </> "java"
+
 _SRC_HAXE_JAVA :: FilePath
 _SRC_HAXE_JAVA = _SRC </> "main" </> "haxe_java"
 
 data Backend
   = Backend
-    { backendName :: String
+    { backendName  :: String
     , compileShell :: FilePath -> String -> String
-    , runShell :: String -> String
+    , runShell     :: String -> String
     }
 
 backendJs :: Backend
@@ -59,80 +69,29 @@ backendJava =
   Backend
     { backendName = "java"
     , compileShell = \cp modul ->
-        "haxe -java " <> (_BUILD_JAVA </> modul <> ".java") <>
-        " -cp " <> _SRC_HAXE <>
-        " -cp " <> cp <>
-        " -cp " <> _SRC_HAXE_JAVA <>
-        " -main " <> modul
-    , runShell = \modul -> "java -jar " <> (_BUILD_JAVA </> modul <> ".java" </> modul <> ".jar")
+        "zsh -c '" <>
+            "haxe -java " <> (_BUILD_JAVA </> modul <> ".java") <>
+            " -cp " <> _SRC_HAXE <>
+            " -cp " <> cp <>
+            " -cp " <> _SRC_HAXE_JAVA <>
+            " -java-lib " <> _BUILD_JAVA_COMMON <>
+            " -main " <> modul <>
+            " -D no-compilation" <>
+          " && " <>
+            "mkdir " <> (_BUILD_JAVA </> modul <> ".java" </> "obj") <>
+          " && " <>
+            "javac -d " <> (_BUILD_JAVA </> modul <> ".java" </> "obj") <>
+            " " <> (_BUILD_JAVA </> modul <> ".java" </> "src" </> "**" </> "*.java") <>
+            " " <> _SRC_JAVA </> "**" </> "*.java" <>
+          " && " <>
+            "jar -cfe " <> (_BUILD_JAVA </> modul <> ".java" </> modul <> ".jar") <>
+            " haxe.root." <> modul <>
+            " -C build/java/" <> modul <> ".java/obj ." <>
+        "'"
+    , runShell = \modul ->
+        "java -jar " <> (_BUILD_JAVA </> modul <> ".java" </> modul <> ".jar") <>
+        " -cp " <> _BUILD_JAVA_COMMON
     }
-
-data TestCase
-  = TestCase
-    { testCaseName :: String
-    , generateInput :: Gen String
-    , haxeExpression :: String
-    , comparator :: String -> String -> Bool
-    }
-
-readParse :: Read a => String -> Maybe a
-readParse input = case reads input of
-  [(a, [])] -> Just a
-  _ -> Nothing
-
-testCases :: [TestCase]
-testCases =
-  [ TestCase
-    { testCaseName = "StdParseInt"
-    , generateInput =
-        oneof
-          [ do
-               double <- arbitrary :: Gen Integer
-               return $ show double
-          , arbitrary
-          , do
-               double <- arbitrary :: Gen Integer
-               str <- arbitrary
-               return $ show double <> str
-          , ("0x" <>) <$> arbitrary
-          ]
-    , haxeExpression = "function(s){return (\"\" + Std.parseInt(s));}"
-    , comparator = \astr bstr -> (readParse astr :: Maybe Integer) == readParse bstr
-    }
-  , TestCase
-    { testCaseName = "StdParseFloat"
-    , generateInput =
-        oneof
-          [ do
-               double <- arbitrary :: Gen Double
-               return $ show double
-          , arbitrary
-          , do
-               double <- arbitrary :: Gen Double
-               str <- arbitrary
-               return $ show double <> str
-          ]
-    , haxeExpression = "function(s){return (\"\" + Std.parseFloat(s));}"
-    , comparator =
-        \astr bstr ->
-          let
-            doubleCmp :: Double -> Double -> Bool
-            doubleCmp a b = a == b || isNaN a && isNaN b
-          in case (readParse astr, readParse bstr) of
-            (Just a, Just b) -> doubleCmp a b
-            (a, b) -> a == b
-    }
-  , TestCase
-    { testCaseName = "StdInt"
-    , generateInput = do
-        double <- arbitrary :: Gen Double
-        return $ show double
-    , haxeExpression = "function(s){return (\"\" + Std.int(Std.parseFloat(s)));}"
-    , comparator = \astr bstr -> (readParse astr :: Maybe Integer) == readParse bstr
-    }
-  ]
-
-
 
 makeMain :: String -> String -> String
 makeMain = \name fun -> "import InOut;\nclass " <> name <> "{ public static function main() { InOut.run(" <> fun <> ");} }"
@@ -147,10 +106,11 @@ runBackend Backend{..} TestCase{..} input = do
   exitCMVar <- newEmptyMVar
   (Just stin, Just stout, _, prHandle) <-
     createProcess (shell $ runShell testCaseName) { std_in = CreatePipe, std_out = CreatePipe }
-      
+
   _ <- forkIO $ do
     e <- try $ do
       hPutStrLn stin input
+      hFlush stin
       hClose stin
     case e of
       Left (ioe :: IOException) -> fail $ "Exception while writing to shell process: " <> show ioe
@@ -180,12 +140,12 @@ qcTestCase etalon backends testCase@TestCase{..} = property $ do
         fail ""
 
 createDirs :: IO ()
-createDirs = forM_ [ _BUILD_HAXE, _BUILD_JS, _BUILD_JAVA ] $ createDirectoryIfMissing True
+createDirs = forM_ [ _BUILD, _BUILD_HAXE, _BUILD_JS, _BUILD_JAVA, _BUILD_JAVA_COMMON ] $ createDirectoryIfMissing True
 
-forkWait :: IO () -> IO (IO ())
+forkWait :: IO a -> IO (IO a)
 forkWait action = do
   v <- newEmptyMVar
-  _ <- forkIO $ action >> putMVar v ()
+  _ <- forkIO $ action >>= putMVar v
   return (readMVar v)
 
 main :: IO ()
@@ -194,11 +154,16 @@ main = do
     etalon = backendJs
     backends = [backendJava]
   createDirs
-  forM_ testCases $ \testCase -> do
+  results <- forM testCases $ \testCase -> do
     -- compile
+    putStrLn $ "[" <> testCaseName testCase <> "] Compiling..."
     compileTestCase (etalon : backends) testCase
     -- test
+    putStrLn $ "[" <> testCaseName testCase <> "] Running test..."
     waits <- replicateM 5 . forkWait $
-      quickCheckWith stdArgs { maxSuccess = 10000, chatty = False } $
+      quickCheckWithResult stdArgs { maxSuccess = 1000 } $
         qcTestCase etalon backends testCase
-    sequence_ waits
+    sequence waits
+  forM_ (concat results) $ \res -> case res of
+    Failure{} -> exitFailure
+    _ -> return ()

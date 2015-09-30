@@ -61,125 +61,17 @@ import java.internal.Exceptions;
 		return cast x;
 	}
 
-	@:functionCode('
-		if (x == null) return null;
-		int ret = 0;
-		int base = 10;
-		int i = 0;
-		int len = x.length();
-		if (x.startsWith("0") && len > 2)
-		{
-			char c = x.charAt(1);
-			if (c == \'x\' || c == \'X\')
-			{
-				i = 2;
-				base = 16;
-			}
-		}
-		boolean foundAny = false;
-		boolean isNeg = false;
-		for (; i < len; i++)
-		{
-			char c = x.charAt(i);
-			if (!foundAny)
-			{
-				switch(c)
-				{
-					case \'-\':
-						isNeg = true;
-						continue;
-					case \'+\':
-					case \'\\n\':
-					case \'\\t\':
-					case \'\\r\':
-					case \' \':
-						if (isNeg) return null;
-						continue;
-				}
-			}
-			if (c >= \'0\' && c <= \'9\')
-			{
-				if (!foundAny && c == \'0\')
-				{
-					foundAny = true;
-					continue;
-				}
-				ret *= base; foundAny = true;
-				ret += ((int) (c - \'0\'));
-			} else if (base == 16) {
-				if (c >= \'a\' && c <= \'f\') {
-					ret *= base; foundAny = true;
-					ret += ((int) (c - \'a\')) + 10;
-				} else if (c >= \'A\' && c <= \'F\') {
-					ret *= base; foundAny = true;
-					ret += ((int) (c - \'A\')) + 10;
-				} else {
-					break;
-				}
-			} else {
-				break;
-			}
-		}
-		if (foundAny)
-			return isNeg ? -ret : ret;
-		else
-			return null;
-	')
 	public static function parseInt( x : String ) : Null<Int> {
-		return null;
+		var v:Dynamic = untyped __java__("com.prezi.haxe.Std.parseInt(x, 10)");
+		if( v == 0 && (x.charCodeAt(1) == 'x'.code || x.charCodeAt(1) == 'X'.code) )
+			v = untyped __java__("com.prezi.haxe.Std.parseInt(x, null)");
+		if (v != v)
+			return null;
+		return cast v;
 	}
 
 	public static function parseFloat( x : String ) : Float {
-		if (x == null) return Math.NaN;
-		x = StringTools.ltrim(x);
-		var found = false, isHex = false, hasDot = false, hasE = false, hasNeg = false, hasENeg = false, hasEPos = false;
-		var i = -1;
-		inline function getch(i:Int):Int return cast (untyped x.codePointAt(i));
-
-		while (++i < x.length)
-		{
-			var chr = getch(i);
-			if (chr >= '0'.code && chr <= '9'.code)
-			{
-				if ( !found && chr == '0'.code && (i+1) < x.length )
-				{
-					var next = getch(i+1);
-
-					if (next == 'x'.code || next == 'X'.code)
-					{
-						isHex = true;
-						i++;
-					}
-
-				}
-				found = true;
-			} else switch (chr) {
-
-				case 'a'.code | 'b'.code | 'c'.code | 'd'.code | 'e'.code | 'f'.code
-				   | 'A'.code | 'B'.code | 'C'.code | 'D'.code | 'E'.code | 'F'.code if (isHex):
-
-				case 'e'.code | 'E'.code if(!hasE):
-					hasE = true;
-				case '.'.code if (!hasDot):
-					hasDot = true;
-				case '-'.code if (!found && !hasNeg):
-					hasNeg = true;
-				case '-'.code if (found && !hasENeg && hasE):
-					hasENeg = true;
-				case '+'.code if (found && !hasEPos && hasE):
-					hasEPos = true;
-				case _:
-					break;
-			}
-		}
-		if (i != x.length)
-		{
-			x = x.substr(0,i);
-		}
-		return try
-			java.lang.Double.parseDouble(x)
-		catch(e:Dynamic)
-			Math.NaN;
+		return untyped __java__("com.prezi.haxe.Std.parseFloat(x)");
 	}
 
 	inline public static function instance<T:{},S:T>( value : T, c : Class<S> ) : S {
